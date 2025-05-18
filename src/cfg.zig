@@ -1,10 +1,11 @@
 const std = @import("std");
 
+const rubr = @import("rubr");
+
 pub const Config = struct {
     pub const Server = struct {
         name: []const u8,
-        cmd: []const u8,
-        args: ?[][]const u8,
+        cmd: [][]const u8,
     };
     pub const Language = struct {
         name: []const u8,
@@ -20,10 +21,11 @@ pub const Loader = struct {
     const Self = @This();
 
     config: *Config,
+    log: *const rubr.log.Log,
     aa: std.heap.ArenaAllocator = undefined,
 
-    pub fn init(config: *Config, a: std.mem.Allocator) Self {
-        return Self{ .config = config, .aa = std.heap.ArenaAllocator.init(a) };
+    pub fn init(config: *Config, log: *const rubr.log.Log, a: std.mem.Allocator) Self {
+        return Self{ .config = config, .log = log, .aa = std.heap.ArenaAllocator.init(a) };
     }
     pub fn deinit(self: *Self) void {
         self.aa.deinit();
@@ -37,13 +39,21 @@ pub const Loader = struct {
     }
 
     pub fn loadFromFile(self: *Self, filename: []const u8) !void {
-        var file = try std.fs.openFileAbsolute(filename, .{});
-        defer file.close();
+        std.debug.print("loadFromFile\n", .{});
+        if (std.fs.openFileAbsolute(filename, .{})) |file| {
+            defer file.close();
 
-        // For some reason, std.zon.parse.fromSlice() expects a sentinel string
-        const content = try file.readToEndAllocOptions(self.aa.allocator(), std.math.maxInt(usize), null, 1, 0);
-
-        try self.loadFromContent(content);
+            // For some reason, std.zon.parse.fromSlice() expects a sentinel string
+            if (file.readToEndAllocOptions(self.aa.allocator(), std.math.maxInt(usize), null, 1, 0)) |content| {
+                try self.loadFromContent(content);
+            } else |err| {
+                try self.log.err("Could not load content from file '{s}': {}\n", .{ filename, err });
+                return err;
+            }
+        } else |err| {
+            try self.log.err("Could not open file '{s}': {}\n", .{ filename, err });
+            return err;
+        }
     }
 
     // - Rework include extensions from 'md' to '.md'
